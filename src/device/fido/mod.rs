@@ -30,7 +30,11 @@ pub(crate) fn get_fido_info() -> Result<FidoDeviceInfo, String> {
     let info_val: Value =
         from_slice(&info_res).map_err(|e| format!("Failed to parse GetInfo CBOR: {}", e))?;
 
-    let map = match &info_val {
+    parse_fido_get_info(&info_val)
+}
+
+fn parse_fido_get_info(info_val: &Value) -> Result<FidoDeviceInfo, String> {
+    let map = match info_val {
         Value::Map(m) => m,
         _ => return Err("GetInfo response is not a CBOR map".into()),
     };
@@ -199,26 +203,10 @@ pub(crate) fn get_fido_info() -> Result<FidoDeviceInfo, String> {
                     );
                 }
             }
-            // 0x13: vendorPrototypeConfigCommands (array of unsigned integers)
+            // Some firmware versions used 0x13 here. Pico-FIDO 7.6 reports
+            // vendorPrototypeConfigCommands at 0x15.
             0x13 => {
-                if let Value::Array(arr) = val {
-                    for v in arr {
-                        if let Value::Integer(n) = v {
-                            let cmd_id = *n as u64;
-                            let cmd_name = VendorConfigCommand::from_u64(cmd_id)
-                                .map(|c| format!("{}", c))
-                                .unwrap_or_else(|| format!("0x{:016X}", cmd_id));
-                            vendor_config_commands.push(cmd_name);
-                        }
-                    }
-                    log::info!(
-                        "Device supports {} vendor config commands: {:?}",
-                        vendor_config_commands.len(),
-                        vendor_config_commands
-                    );
-                } else {
-                    log::info!("Empty vendor config commands list");
-                }
+                parse_get_info_extension_list(val, &mut vendor_config_commands, &mut certifications)
             }
             // 0x14: remainingDiscoverableCredentials
             0x14 => {
@@ -230,36 +218,13 @@ pub(crate) fn get_fido_info() -> Result<FidoDeviceInfo, String> {
                     );
                 }
             }
-            // 0x15: certifications (map or array of integers)
+            // Pico-FIDO 7.6 uses 0x15 for vendorPrototypeConfigCommands.
             0x15 => {
-                // log::trace!("Device certifications (0x15): {:?}", val);
-                match val {
-                    Value::Map(cert_map) => {
-                        for (k, v) in cert_map {
-                            if let (Value::Text(name), Value::Bool(enabled)) = (k, v) {
-                                let display_name = FidoCertification::from_str(name)
-                                    .map(|c| format!("{}", c))
-                                    .unwrap_or_else(|| name.clone());
-                                certifications.insert(display_name, *enabled);
-                            }
-                        }
-                    }
-                    Value::Array(cert_arr) => {
-                        for v in cert_arr {
-                            if let Value::Integer(id) = v {
-                                let cert_id = *id as u64;
-                                let name = FidoCertification::from_u64(cert_id)
-                                    .map(|c| format!("{}", c))
-                                    .unwrap_or_else(|| format!("0x{:016X}", cert_id));
-                                certifications.insert(name, true);
-                            }
-                        }
-                    }
-                    _ => {
-                        log::error!("Unexpected type for device certifications: {:?}", val);
-                    }
-                }
-                log::info!("Device certifications (0x15): {:?}", certifications);
+                parse_get_info_extension_list(val, &mut vendor_config_commands, &mut certifications)
+            }
+            // 0x1B/0x1C are Pico-FIDO PIN policy extensions.
+            0x1B | 0x1C => {
+                log::trace!("GetInfo Pico-FIDO extension key 0x{:02X} skipped", key_num);
             }
             // All other known keys (0x10-0x12, 0x16) - silently skip
             0x10..=0x12 | 0x16 => {
@@ -305,6 +270,47 @@ pub(crate) fn get_fido_info() -> Result<FidoDeviceInfo, String> {
         force_pin_change,
         max_cred_blob_length,
     })
+}
+
+fn parse_get_info_extension_list(
+    val: &Value,
+    vendor_config_commands: &mut Vec<String>,
+    certifications: &mut std::collections::HashMap<String, bool>,
+) {
+    match val {
+        Value::Array(arr) => {
+            for v in arr {
+                if let Value::Integer(n) = v {
+                    let cmd_id = *n as u64;
+                    let cmd_name = VendorConfigCommand::from_u64(cmd_id)
+                        .map(|c| format!("{}", c))
+                        .unwrap_or_else(|| format!("0x{:016X}", cmd_id));
+                    if !vendor_config_commands.contains(&cmd_name) {
+                        vendor_config_commands.push(cmd_name);
+                    }
+                }
+            }
+            log::info!(
+                "Device supports {} vendor config commands: {:?}",
+                vendor_config_commands.len(),
+                vendor_config_commands
+            );
+        }
+        Value::Map(cert_map) => {
+            for (k, v) in cert_map {
+                if let (Value::Text(name), Value::Bool(enabled)) = (k, v) {
+                    let display_name = FidoCertification::from_str(name)
+                        .map(|c| format!("{}", c))
+                        .unwrap_or_else(|| name.clone());
+                    certifications.insert(display_name, *enabled);
+                }
+            }
+            log::info!("Device certifications: {:?}", certifications);
+        }
+        _ => {
+            log::trace!("Unsupported GetInfo extension list shape: {:?}", val);
+        }
+    }
 }
 
 pub(crate) fn change_fido_pin(
@@ -931,58 +937,69 @@ pub(crate) fn get_enterprise_attestation_csr() -> Result<String, String> {
 mod tests {
     use super::*;
     use serde_cbor_2::Value;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
 
-    #[test]
-    fn test_parse_certifications_map() {
-        let mut certifications = HashMap::new();
-        let mut map = BTreeMap::new();
-        // Test with both friendly names and hex string names
-        map.insert(Value::Text("fido-v2".into()), Value::Bool(true));
-        map.insert(Value::Text("0x6C07D70FE96C3897".into()), Value::Bool(true)); // PIN Complexity
-        let val = Value::Map(map);
-
-        if let Value::Map(cert_map) = &val {
-            for (k, v) in cert_map {
-                if let (Value::Text(name), Value::Bool(enabled)) = (k, v) {
-                    let display_name = FidoCertification::from_str(name)
-                        .map(|c| format!("{}", c))
-                        .unwrap_or_else(|| name.clone());
-                    certifications.insert(display_name, *enabled);
-                }
-            }
+    fn empty_config_input() -> AppConfigInput {
+        AppConfigInput {
+            vid: None,
+            pid: None,
+            product_name: None,
+            led_gpio: None,
+            led_brightness: None,
+            touch_timeout: None,
+            led_driver: None,
+            led_dimmable: None,
+            power_cycle_on_reset: None,
+            led_steady: None,
+            enable_secp256k1: None,
         }
-
-        assert_eq!(certifications.len(), 2);
-        assert_eq!(certifications.get("fido-v2"), Some(&true));
-        assert_eq!(certifications.get("PIN Complexity"), Some(&true));
     }
 
     #[test]
-    fn test_parse_certifications_array() {
-        let mut certifications = HashMap::new();
-        let val = Value::Array(vec![
-            Value::Integer(0x6C07D70FE96C3897), // PIN Complexity
-            Value::Integer(0x03E43F56B34285E2), // Auth Encryption
-            Value::Integer(0x1234567890ABCDEF), // Unknown
-        ]);
+    fn test_parse_get_info_pico_fido_76_vendor_commands_at_0x15() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            Value::Integer(0x01),
+            Value::Array(vec![
+                Value::Text("U2F_V2".into()),
+                Value::Text("FIDO_2_1".into()),
+                Value::Text("FIDO_2_2".into()),
+            ]),
+        );
+        map.insert(Value::Integer(0x03), Value::Bytes(vec![0x89; 16]));
+        map.insert(Value::Integer(0x05), Value::Integer(1024));
+        map.insert(
+            Value::Integer(0x06),
+            Value::Array(vec![Value::Integer(1), Value::Integer(2)]),
+        );
+        map.insert(Value::Integer(0x0D), Value::Integer(4));
+        map.insert(Value::Integer(0x0E), Value::Integer(0x0706));
+        map.insert(
+            Value::Integer(0x15),
+            Value::Array(vec![
+                Value::Integer(VendorConfigCommand::AuthEncryptionEnable as u64 as i128),
+                Value::Integer(VendorConfigCommand::PhysicalVidPid as u64 as i128),
+                Value::Integer(0x1234567890ABCDEF),
+            ]),
+        );
 
-        if let Value::Array(cert_arr) = &val {
-            for v in cert_arr {
-                if let Value::Integer(id) = v {
-                    let cert_id = *id as u64;
-                    let name = FidoCertification::from_u64(cert_id)
-                        .map(|c| format!("{}", c))
-                        .unwrap_or_else(|| format!("0x{:016X}", cert_id));
-                    certifications.insert(name, true);
-                }
-            }
-        }
+        let info = parse_fido_get_info(&Value::Map(map)).unwrap();
 
-        assert_eq!(certifications.len(), 3);
-        assert_eq!(certifications.get("PIN Complexity"), Some(&true));
-        assert_eq!(certifications.get("Auth Encryption"), Some(&true));
-        assert_eq!(certifications.get("0x1234567890ABCDEF"), Some(&true));
+        assert_eq!(info.firmware_version, "7.6");
+        assert_eq!(info.pin_protocols, vec![1, 2]);
+        assert!(
+            info.vendor_config_commands
+                .contains(&"AuthEncryptionEnable".to_string())
+        );
+        assert!(
+            info.vendor_config_commands
+                .contains(&"PhysicalVidPid".to_string())
+        );
+        assert!(
+            info.vendor_config_commands
+                .contains(&"0x1234567890ABCDEF".to_string())
+        );
+        assert!(info.certifications.is_empty());
     }
 
     #[test]
