@@ -72,6 +72,36 @@ install -m 644 static/appIcons/in.suyogtandel.picoforge.svg %{buildroot}%{_datad
 %{_datadir}/icons/hicolor/scalable/apps/in.suyogtandel.picoforge.svg
 
 %changelog
+* Mon Jun 22 2026 Suyog Tandel <git@suyogtandel.in> 0.6.0-1
+- chore: sync spec to 0.6.0 [skip ci] (git@suyogtandel.in)
+- chore: update deps and fix tito spec update script (git@suyogtandel.in)
+- chore: Modify Readme.md with firmware support info (git@suyogtandel.in)
+- chore: update screenshots and readme.md (git@suyogtandel.in)
+- chore: format code (git@suyogtandel.in)
+- fix: edge cases in conditional clauses for version check of firmware
+  (git@suyogtandel.in)
+- fix: update the device not connected message in config view
+  (git@suyogtandel.in)
+- docs: update picofido firmware compatibility notes (kralonur1998@gmail.com)
+- docs: add kralonur to credits (kralonur1998@gmail.com)
+- style: cargo clippy and fmt (kralonur1998@gmail.com)
+- fix(ui): gate FIDO hardware config by firmware support
+  (kralonur1998@gmail.com)
+- refactor(fido): gate hardware config by firmware version
+  (kralonur1998@gmail.com)
+- refactor(fido): parse picofido 7.6 getinfo vendor commands
+  (kralonur1998@gmail.com)
+- refactor(fido): split raw HID and CBOR response handling
+  (kralonur1998@gmail.com)
+- Update according to review and fic Refresh button
+  (sylvain.pelissier@gmail.com)
+- Update src/device/fido/hid.rs (sylvain.pelissier@gmail.com)
+- Add Enterprise attestation features: (sylvain.pelissier@gmail.com)
+- chore(docs): update readme.md with flathub link (git@suyogtandel.in)
+- picoforge: 0.4.1 -> 0.5.0+1 (github-actions[bot]@users.noreply.github.com)
+- fix(pkg): appstream syntax error (git@suyogtandel.in)
+- chore: update appstream for flathub (git@suyogtandel.in)
+
 * Fri Mar 06 2026 Suyog Tandel <git@suyogtandel.in> 0.5.0-1
 - chore: sync spec to 0.5.0 [skip ci] (git@suyogtandel.in)
 - chore: bump app version to 0.5.0 (git@suyogtandel.in)
