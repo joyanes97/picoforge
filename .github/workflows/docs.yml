@@ -24,13 +24,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rust-docs
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v14
 
       - name: Generate Documentation
-        run: cargo doc --no-deps --document-private-items
+        run: nix develop --command cargo doc --document-private-items
 
       - name: Create Redirect Index
         run: |
