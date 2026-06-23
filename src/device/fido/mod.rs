@@ -33,7 +33,7 @@
 //! agreement, and CBOR serialization. It exposes [`HidTransport`] which the
 //! rest of the module uses for all device I/O.
 //!
-//! [`mod.rs`] contains the public functions called from [`super::io`].
+//! This module contains the public functions called from [`super::io`].
 //! Each function opens an [`HidTransport`], performs the CTAP2 operation,
 //! and parses the CBOR response into the structs defined in [`super::types`].
 //!

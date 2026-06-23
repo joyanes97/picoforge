@@ -130,7 +130,7 @@
 //! - PHY configuration tags and bitflags
 //! - Vendor applet AIDs and instructions (LED, Management)
 //!
-//! [`mod.rs`] contains the public functions called from [`super::io`]:
+//! This module contains the public functions called from [`super::io`]:
 //! - `read_device_details()`: Reads full device status via Rescue
 //! - `write_config()`: Writes PHY configuration (VID/PID, LED, curves, etc.)
 //! - `reboot_device()`: Reboots device (normal or BOOTSEL mode)
